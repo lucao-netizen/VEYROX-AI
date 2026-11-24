@@ -1,121 +1,116 @@
 
 "use strict";
 
-/* ==========================================
-   VEYROX AI — FRONTEND
-   Backend: Render
-   ========================================== */
+/* =========================================
+   VEYROX AI — 1.0
+   Frontend + Render Backend
+   ========================================= */
 
 const API_URL = "https://veyrox-ai.onrender.com/api/chat";
-const STORAGE_KEY = "veyrox_chats_v2";
-const SETTINGS_KEY = "veyrox_settings_v2";
+
+const CHAT_STORAGE = "veyrox_chats_v4";
+const SETTINGS_STORAGE = "veyrox_settings_v2";
 
 const MODES = {
   general: {
-    name: "Allgemein",
-    instruction: "Du bist VEYROX, ein hilfreicher, intelligenter KI-Assistent. Antworte verständlich, präzise und in der Sprache des Nutzers."
+    label: "✦ Allgemein",
+    instruction: "Du bist VEYROX, ein hilfreicher KI-Assistent. Antworte klar, verständlich und präzise."
   },
   writing: {
-    name: "Schreiben",
-    instruction: "Du bist VEYROX, ein professioneller Schreibassistent. Hilf beim Schreiben, Überarbeiten, Formulieren und Verbessern von Texten."
+    label: "✎ Schreiben",
+    instruction: "Du bist VEYROX Schreibassistent. Hilf bei Texten, Formulierungen, Ideen und Überarbeitungen."
   },
   coding: {
-    name: "Programmieren",
-    instruction: "Du bist VEYROX, ein technischer Programmierassistent. Erkläre Code verständlich, liefere korrekte Lösungen und achte auf Fehler."
+    label: "⌘ Coding",
+    instruction: "Du bist VEYROX Programmierassistent. Schreibe sauberen Code und erkläre Fehler sowie Lösungen verständlich."
   },
   summary: {
-    name: "Zusammenfassen",
-    instruction: "Du bist VEYROX, ein Zusammenfassungsassistent. Fasse Inhalte strukturiert, verständlich und auf das Wesentliche konzentriert zusammen."
+    label: "▤ Zusammenfassen",
+    instruction: "Du bist VEYROX Zusammenfassungsassistent. Fasse Informationen strukturiert und auf das Wesentliche zusammen."
   }
 };
 
-const $ = (selector) => document.querySelector(selector);
-const $$ = (selector) => [...document.querySelectorAll(selector)];
+/* ELEMENTS */
+
+const el = {
+  sidebar: document.getElementById("sidebar"),
+  sidebarOverlay: document.getElementById("sidebarOverlay"),
+  mobileMenuBtn: document.getElementById("mobileMenuBtn"),
+
+  chatHistory: document.getElementById("chatHistory"),
+  chatArea: document.getElementById("chatArea"),
+  messages: document.getElementById("messages"),
+  welcome: document.getElementById("welcome"),
+
+  input: document.getElementById("messageInput"),
+  send: document.getElementById("sendBtn"),
+  newChat: document.getElementById("newChatBtn"),
+
+  themeBtn: document.getElementById("themeBtn"),
+  themeIcon: document.getElementById("themeIcon"),
+  themeText: document.getElementById("themeText"),
+
+  currentMode: document.getElementById("currentMode")
+};
+
+/* STATE */
 
 const state = {
-  mode: "general",
   chats: [],
   currentChatId: null,
+  mode: "general",
   busy: false,
-  settings: {
-    theme: "dark"
-  }
+  theme: "dark"
 };
 
-/* ---------- DOM ELEMENTS ---------- */
+/* STORAGE */
 
-const input =
-  $("#messageInput") ||
-  $("#chatInput") ||
-  $("#promptInput") ||
-  $("textarea");
-
-const sendButton =
-  $("#sendButton") ||
-  $("#sendBtn") ||
-  $("#submitButton") ||
-  $('[type="submit"]');
-
-const messagesContainer =
-  $("#messagesContainer") ||
-  $("#chatMessages") ||
-  $("#messages") ||
-  $(".messages");
-
-const chatList =
-  $("#chatHistory") ||
-  $("#chatList") ||
-  $("#historyList");
-
-const newChatButton =
-  $("#newChatButton") ||
-  $("#newChatBtn") ||
-  $("#newChat");
-
-const modeButtons = $$("[data-mode]");
-
-/* ---------- STORAGE ---------- */
-
-function loadStorage() {
+function loadData() {
   try {
-    const chats = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
-    if (Array.isArray(chats)) state.chats = chats;
+    const saved = JSON.parse(localStorage.getItem(CHAT_STORAGE) || "[]");
+    if (Array.isArray(saved)) state.chats = saved;
   } catch {
     state.chats = [];
   }
 
   try {
     const settings = JSON.parse(
-      localStorage.getItem(SETTINGS_KEY) || "{}"
+      localStorage.getItem(SETTINGS_STORAGE) || "{}"
     );
-
-    state.settings = { ...state.settings, ...settings };
-  } catch {}
-
-  if (state.settings.theme === "light") {
-    document.body.classList.add("light-mode");
+    state.theme = settings.theme || "dark";
+  } catch {
+    state.theme = "dark";
   }
+
+  applyTheme();
 }
 
 function saveChats() {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state.chats));
+    localStorage.setItem(CHAT_STORAGE, JSON.stringify(state.chats));
   } catch (error) {
-    console.error("VEYROX: Chats konnten nicht gespeichert werden", error);
+    console.error("Speicherfehler:", error);
   }
 }
 
 function saveSettings() {
-  localStorage.setItem(SETTINGS_KEY, JSON.stringify(state.settings));
+  localStorage.setItem(
+    SETTINGS_STORAGE,
+    JSON.stringify({ theme: state.theme })
+  );
 }
 
-/* ---------- CHAT MANAGEMENT ---------- */
+/* CHAT */
+
+function currentChat() {
+  return state.chats.find(c => c.id === state.currentChatId) || null;
+}
 
 function createChat() {
   const chat = {
     id: crypto.randomUUID(),
     title: "Neuer Chat",
-    mode: state.mode,
+    mode: "general",
     messages: [],
     createdAt: Date.now(),
     updatedAt: Date.now()
@@ -123,22 +118,18 @@ function createChat() {
 
   state.chats.unshift(chat);
   state.currentChatId = chat.id;
+  state.mode = "general";
 
   saveChats();
-  renderChatList();
+  renderChatHistory();
   renderMessages();
+  updateModeUI();
 
   return chat;
 }
 
-function getCurrentChat() {
-  return state.chats.find(
-    chat => chat.id === state.currentChatId
-  );
-}
-
 function ensureChat() {
-  return getCurrentChat() || createChat();
+  return currentChat() || createChat();
 }
 
 function openChat(id) {
@@ -148,9 +139,10 @@ function openChat(id) {
   state.currentChatId = id;
   state.mode = chat.mode || "general";
 
-  updateModeButtons();
+  renderChatHistory();
   renderMessages();
-  renderChatList();
+  updateModeUI();
+  closeSidebar();
 }
 
 function deleteChat(id) {
@@ -161,25 +153,16 @@ function deleteChat(id) {
   }
 
   saveChats();
-  renderChatList();
+  renderChatHistory();
   renderMessages();
 }
 
-function renameChat(id, title) {
-  const chat = state.chats.find(c => c.id === id);
-  if (!chat) return;
-
-  chat.title = title.trim() || "Neuer Chat";
-  saveChats();
-  renderChatList();
-}
-
-function generateTitle(text) {
-  const clean = text.replace(/\s+/g, " ").trim();
+function makeTitle(text) {
+  const clean = text.trim().replace(/\s+/g, " ");
   return clean.length > 36 ? clean.slice(0, 36) + "…" : clean;
 }
 
-/* ---------- MESSAGE RENDERING ---------- */
+/* SAFE TEXT */
 
 function escapeHTML(text) {
   return String(text).replace(/[&<>"']/g, char => ({
@@ -192,182 +175,150 @@ function escapeHTML(text) {
 }
 
 function formatMessage(text) {
-  let safe = escapeHTML(text);
+  let html = escapeHTML(text);
 
-  // Code blocks
-  safe = safe.replace(
-    /```([\w+-]*)\n([\s\S]*?)```/g,
-    (_, lang, code) =>
-      `<pre><code class="language-${lang}">${code}</code></pre>`
+  html = html.replace(
+    /```([\w-]*)\n([\s\S]*?)```/g,
+    (match, language, code) =>
+      `<pre><code class="language-${language}">${code}</code></pre>`
   );
 
-  // Inline code
-  safe = safe.replace(/`([^`]+)`/g, "<code>$1</code>");
+  html = html.replace(/`([^`]+)`/g, "<code>$1</code>");
+  html = html.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
+  html = html.replace(/\*(.*?)\*/g, "<em>$1</em>");
+  html = html.replace(/\n/g, "<br>");
 
-  // Basic Markdown
-  safe = safe.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
-  safe = safe.replace(/\*(.*?)\*/g, "<em>$1</em>");
-  safe = safe.replace(/\n/g, "<br>");
-
-  return safe;
+  return html;
 }
 
-function addMessageToUI(role, content) {
-  if (!messagesContainer) {
-    console.error("VEYROX: Nachrichtencontainer nicht gefunden.");
-    return;
-  }
+/* RENDER */
 
+function addMessage(role, text) {
   const wrapper = document.createElement("div");
   wrapper.className = `message ${role}-message`;
 
-  const bubble = document.createElement("div");
-  bubble.className = "message-content";
-  bubble.innerHTML = formatMessage(content);
+  const content = document.createElement("div");
+  content.className = "message-content";
+  content.innerHTML = formatMessage(text);
 
-  wrapper.appendChild(bubble);
-  messagesContainer.appendChild(wrapper);
+  wrapper.appendChild(content);
+  el.messages.appendChild(wrapper);
 
   scrollToBottom();
 }
 
 function renderMessages() {
-  if (!messagesContainer) return;
+  el.messages.innerHTML = "";
 
-  messagesContainer.innerHTML = "";
+  const chat = currentChat();
+  const hasMessages = !!chat && chat.messages.length > 0;
 
-  const chat = getCurrentChat();
+  el.welcome.style.display = hasMessages ? "none" : "";
 
-  if (!chat) {
-    showWelcome();
-    return;
-  }
+  if (!chat) return;
 
   chat.messages.forEach(message => {
-    addMessageToUI(message.role, message.content);
+    addMessage(message.role, message.content);
   });
 }
 
-function showWelcome() {
-  if (!messagesContainer) return;
+function scrollToBottom() {
+  el.chatArea.scrollTop = el.chatArea.scrollHeight;
+  el.messages.scrollTop = el.messages.scrollHeight;
+}
 
-  messagesContainer.innerHTML = `
-    <div class="veyrox-welcome">
-      <h2>VEYROX AI</h2>
-      <p>YOUR AI. YOUR SPACE.</p>
-      <p>Wie kann ich dir helfen?</p>
+function showTyping() {
+  const node = document.createElement("div");
+  node.className = "message assistant-message typing-indicator";
+  node.innerHTML = `
+    <div class="message-content">
+      <span></span><span></span><span></span>
     </div>
   `;
+
+  el.messages.appendChild(node);
+  scrollToBottom();
+
+  return node;
 }
 
-function scrollToBottom() {
-  if (messagesContainer) {
-    messagesContainer.scrollTop = messagesContainer.scrollHeight;
-  }
+function showError(text) {
+  const node = document.createElement("div");
+  node.className = "message error-message";
+
+  const content = document.createElement("div");
+  content.className = "message-content";
+  content.textContent = text;
+
+  node.appendChild(content);
+  el.messages.appendChild(node);
+
+  scrollToBottom();
 }
 
-/* ---------- CHAT HISTORY ---------- */
+/* CHAT HISTORY */
 
-function renderChatList() {
-  if (!chatList) return;
-
-  chatList.innerHTML = "";
+function renderChatHistory() {
+  el.chatHistory.innerHTML = "";
 
   state.chats.forEach(chat => {
     const item = document.createElement("div");
-    item.className = "chat-history-item";
+    item.className = "history-item";
 
     if (chat.id === state.currentChatId) {
       item.classList.add("active");
     }
 
     const title = document.createElement("button");
-    title.className = "chat-history-title";
-    title.textContent = chat.title || "Neuer Chat";
-    title.onclick = () => openChat(chat.id);
+    title.className = "history-title";
+    title.textContent = chat.title;
+    title.addEventListener("click", () => openChat(chat.id));
 
     const remove = document.createElement("button");
-    remove.className = "chat-history-delete";
+    remove.className = "history-delete";
     remove.textContent = "×";
     remove.title = "Chat löschen";
-    remove.onclick = event => {
+
+    remove.addEventListener("click", event => {
       event.stopPropagation();
       deleteChat(chat.id);
-    };
+    });
 
     item.append(title, remove);
-    chatList.appendChild(item);
+    el.chatHistory.appendChild(item);
   });
 }
 
-/* ---------- MODES ---------- */
+/* MODE */
 
 function setMode(mode) {
   if (!MODES[mode]) return;
 
   state.mode = mode;
 
-  const chat = getCurrentChat();
-  if (chat) chat.mode = mode;
+  const chat = currentChat();
+  if (chat) {
+    chat.mode = mode;
+    saveChats();
+  }
 
-  updateModeButtons();
-  saveChats();
+  updateModeUI();
 }
 
-function updateModeButtons() {
-  modeButtons.forEach(button => {
-    const selected = button.dataset.mode === state.mode;
+function updateModeUI() {
+  document.querySelectorAll(".mode-btn").forEach(button => {
+    const active = button.dataset.mode === state.mode;
 
-    button.classList.toggle("active", selected);
-    button.classList.toggle("selected", selected);
-    button.setAttribute("aria-pressed", String(selected));
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
   });
+
+  el.currentMode.textContent = MODES[state.mode].label;
 }
 
-/* ---------- STATUS ---------- */
+/* BACKEND REQUEST */
 
-function setBusy(busy) {
-  state.busy = busy;
-
-  if (sendButton) {
-    sendButton.disabled = busy;
-  }
-
-  if (input) {
-    input.disabled = busy;
-  }
-}
-
-function showTyping() {
-  if (!messagesContainer) return null;
-
-  const typing = document.createElement("div");
-  typing.className = "message assistant-message typing-indicator";
-  typing.innerHTML = "<span></span><span></span><span></span>";
-
-  messagesContainer.appendChild(typing);
-  scrollToBottom();
-
-  return typing;
-}
-
-function showError(message) {
-  if (!messagesContainer) {
-    alert(message);
-    return;
-  }
-
-  const error = document.createElement("div");
-  error.className = "veyrox-error";
-  error.textContent = message;
-
-  messagesContainer.appendChild(error);
-  scrollToBottom();
-}
-
-/* ---------- BACKEND ---------- */
-
-async function getAIResponse(message, chat) {
+async function requestAI(message, chat) {
   const history = chat.messages
     .slice(0, -1)
     .slice(-20)
@@ -383,87 +334,84 @@ async function getAIResponse(message, chat) {
     history
   };
 
-  let response;
+  console.log("VEYROX: Sende Anfrage an", API_URL);
 
-  try {
-    response = await fetch(API_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify(payload)
-    });
-  } catch (error) {
-    throw new Error(
-      "Backend nicht erreichbar. Prüfe deine Internetverbindung oder Render."
-    );
-  }
+  const response = await fetch(API_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload)
+  });
 
-  const raw = await response.text();
+  const text = await response.text();
 
   let data;
+
   try {
-    data = JSON.parse(raw);
+    data = JSON.parse(text);
   } catch {
     throw new Error(
-      `Backend lieferte keine gültige JSON-Antwort (HTTP ${response.status}).`
+      `Ungültige Serverantwort. HTTP ${response.status}`
     );
   }
 
   if (!response.ok) {
     throw new Error(
-      data.error ||
-      data.message ||
-      `Serverfehler HTTP ${response.status}`
+      data.error || data.message || `HTTP ${response.status}`
     );
   }
 
-  if (!data.reply || typeof data.reply !== "string") {
-    throw new Error("Die KI hat keine gültige Antwort zurückgegeben.");
+  if (typeof data.reply !== "string" || !data.reply.trim()) {
+    throw new Error("Backend hat keine KI-Antwort zurückgegeben.");
   }
 
   return data.reply;
 }
 
-/* ---------- SEND MESSAGE ---------- */
+/* SEND MESSAGE */
 
 async function sendMessage() {
-  if (state.busy || !input) return;
+  if (state.busy) return;
 
-  const message = input.value.trim();
-  if (!message) return;
+  const text = el.input.value.trim();
+  if (!text) return;
 
   const chat = ensureChat();
 
   if (chat.messages.length === 0) {
-    chat.title = generateTitle(message);
+    chat.title = makeTitle(text);
   }
 
   chat.mode = state.mode;
 
   chat.messages.push({
     role: "user",
-    content: message,
+    content: text,
     timestamp: Date.now()
   });
 
   chat.updatedAt = Date.now();
 
   saveChats();
-  renderChatList();
+  renderChatHistory();
 
-  input.value = "";
-  input.style.height = "";
+  el.input.value = "";
+  el.input.style.height = "auto";
+  el.welcome.style.display = "none";
 
-  addMessageToUI("user", message);
+  addMessage("user", text);
 
-  setBusy(true);
+  state.busy = true;
+  el.send.disabled = true;
+  el.input.disabled = true;
+
   const typing = showTyping();
 
   try {
-    const reply = await getAIResponse(message, chat);
+    const reply = await requestAI(text, chat);
 
-    if (typing) typing.remove();
+    typing.remove();
 
     chat.messages.push({
       role: "assistant",
@@ -474,63 +422,114 @@ async function sendMessage() {
     chat.updatedAt = Date.now();
 
     saveChats();
-    addMessageToUI("assistant", reply);
+    addMessage("assistant", reply);
+
   } catch (error) {
-    if (typing) typing.remove();
+    typing.remove();
 
-    console.error("VEYROX Chat Fehler:", error);
+    console.error("VEYROX Fehler:", error);
 
-    showError("Fehler: " + error.message);
+    showError("Anfrage fehlgeschlagen: " + error.message);
+
   } finally {
-    setBusy(false);
-    if (input) input.focus();
+    state.busy = false;
+    el.input.disabled = false;
+    updateSendButton();
   }
 }
 
-/* ---------- EVENTS ---------- */
+/* INPUT */
 
-if (sendButton) {
-  sendButton.addEventListener("click", event => {
+function updateSendButton() {
+  el.send.disabled = state.busy || !el.input.value.trim();
+}
+
+el.send.addEventListener("click", sendMessage);
+
+el.input.addEventListener("input", () => {
+  updateSendButton();
+
+  el.input.style.height = "auto";
+  el.input.style.height =
+    Math.min(el.input.scrollHeight, 180) + "px";
+});
+
+el.input.addEventListener("keydown", event => {
+  if (event.key === "Enter" && !event.shiftKey) {
     event.preventDefault();
     sendMessage();
-  });
-}
+  }
+});
 
-if (input) {
-  input.addEventListener("keydown", event => {
-    if (event.key === "Enter" && !event.shiftKey) {
-      event.preventDefault();
-      sendMessage();
-    }
-  });
+/* NEW CHAT */
 
-  input.addEventListener("input", () => {
-    input.style.height = "auto";
-    input.style.height = Math.min(input.scrollHeight, 180) + "px";
-  });
-}
+el.newChat.addEventListener("click", () => {
+  state.currentChatId = null;
+  createChat();
+});
 
-if (newChatButton) {
-  newChatButton.addEventListener("click", () => {
-    state.currentChatId = null;
-    state.mode = "general";
-    createChat();
-    updateModeButtons();
-  });
-}
+/* MODE BUTTONS */
 
-modeButtons.forEach(button => {
+document.querySelectorAll(".mode-btn").forEach(button => {
   button.addEventListener("click", () => {
     setMode(button.dataset.mode);
   });
 });
 
-/* ---------- INITIALIZATION ---------- */
+/* SUGGESTIONS */
 
-loadStorage();
-renderChatList();
+document.querySelectorAll(".suggestion-card").forEach(button => {
+  button.addEventListener("click", () => {
+    el.input.value = button.dataset.prompt || "";
+    updateSendButton();
+    el.input.focus();
+
+    // "Hi" wird direkt gesendet, um die KI zu testen.
+    if (el.input.value.trim() === "Hi") {
+      sendMessage();
+    }
+  });
+});
+
+/* THEME */
+
+function applyTheme() {
+  const light = state.theme === "light";
+
+  document.body.classList.toggle("light-mode", light);
+
+  el.themeIcon.textContent = light ? "☀" : "☾";
+  el.themeText.textContent = light ? "Dark Mode" : "Design wechseln";
+}
+
+el.themeBtn.addEventListener("click", () => {
+  state.theme = state.theme === "dark" ? "light" : "dark";
+  applyTheme();
+  saveSettings();
+});
+
+/* MOBILE SIDEBAR */
+
+function openSidebar() {
+  el.sidebar.classList.add("open");
+  el.sidebarOverlay.classList.add("active");
+}
+
+function closeSidebar() {
+  el.sidebar.classList.remove("open");
+  el.sidebarOverlay.classList.remove("active");
+}
+
+el.mobileMenuBtn.addEventListener("click", openSidebar);
+el.sidebarOverlay.addEventListener("click", closeSidebar);
+
+/* INITIALIZE */
+
+loadData();
+renderChatHistory();
 renderMessages();
-updateModeButtons();
+updateModeUI();
+updateSendButton();
 
-console.log("VEYROX AI frontend loaded.");
+console.log("VEYROX geladen.");
 console.log("Backend:", API_URL);

@@ -1,617 +1,167 @@
 
-"use strict";
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#080b12">
+  <title>VEYROX AI</title>
+  <meta name="description" content="VEYROX AI – YOUR AI. YOUR SPACE.">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
 
-/* ==========================================
-   VEYROX AI 1.0
-   Frontend for GitHub Pages
-   Backend: Render
-   ========================================== */
+<div class="app">
 
-const API_URL = "https://veyrox-ai.onrender.com/api/chat";
-
-const STORAGE_KEY = "veyrox_chats_v3";
-const SETTINGS_KEY = "veyrox_settings_v1";
-
-const MODES = {
-  general: {
-    label: "✦ Allgemein",
-    instruction:
-      "Du bist VEYROX, ein hilfreicher KI-Assistent. Antworte präzise, verständlich, freundlich und in der Sprache des Nutzers."
-  },
-
-  writing: {
-    label: "✎ Schreiben",
-    instruction:
-      "Du bist VEYROX Schreibassistent. Unterstütze beim Schreiben, Formulieren, Überarbeiten und Verbessern von Texten."
-  },
-
-  coding: {
-    label: "⌘ Coding",
-    instruction:
-      "Du bist VEYROX Programmierassistent. Erstelle sauberen Code, finde Fehler und erkläre Lösungen verständlich."
-  },
-
-  summary: {
-    label: "▤ Zusammenfassen",
-    instruction:
-      "Du bist VEYROX Zusammenfassungsassistent. Fasse Inhalte übersichtlich, korrekt und auf das Wesentliche konzentriert zusammen."
-  }
-};
-
-const state = {
-  chats: [],
-  currentChatId: null,
-  mode: "general",
-  busy: false,
-  theme: "dark"
-};
-
-/* ==========================================
-   ELEMENTS
-   ========================================== */
-
-const messages = document.getElementById("messages");
-const chatHistory = document.getElementById("chatHistory");
-const messageInput = document.getElementById("messageInput");
-const sendBtn = document.getElementById("sendBtn");
-const newChatBtn = document.getElementById("newChatBtn");
-
-const themeBtn = document.getElementById("themeBtn");
-const themeIcon = document.getElementById("themeIcon");
-const themeText = document.getElementById("themeText");
-
-const welcome = document.getElementById("welcome");
-const suggestions = document.getElementById("suggestions");
-const currentMode = document.getElementById("currentMode");
-
-const sidebar = document.getElementById("sidebar");
-const sidebarOverlay = document.getElementById("sidebarOverlay");
-const mobileMenuBtn = document.getElementById("mobileMenuBtn");
-
-/* ==========================================
-   STORAGE
-   ========================================== */
-
-function loadData() {
-  try {
-    const savedChats = JSON.parse(
-      localStorage.getItem(STORAGE_KEY) || "[]"
-    );
-
-    if (Array.isArray(savedChats)) {
-      state.chats = savedChats;
-    }
-  } catch (error) {
-    console.error("Chat-Speicher konnte nicht geladen werden:", error);
-    state.chats = [];
-  }
-
-  try {
-    const settings = JSON.parse(
-      localStorage.getItem(SETTINGS_KEY) || "{}"
-    );
-
-    state.theme = settings.theme || "dark";
-  } catch {
-    state.theme = "dark";
-  }
-
-  applyTheme();
-}
-
-function saveChats() {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state.chats));
-  } catch (error) {
-    console.error("Chats konnten nicht gespeichert werden:", error);
-  }
-}
-
-function saveSettings() {
-  localStorage.setItem(
-    SETTINGS_KEY,
-    JSON.stringify({ theme: state.theme })
-  );
-}
-
-/* ==========================================
-   CHAT FUNCTIONS
-   ========================================== */
-
-function getCurrentChat() {
-  return state.chats.find(
-    chat => chat.id === state.currentChatId
-  ) || null;
-}
-
-function createChat() {
-  const chat = {
-    id: Date.now().toString() + Math.random().toString(36).slice(2),
-    title: "Neuer Chat",
-    mode: "general",
-    messages: [],
-    createdAt: Date.now(),
-    updatedAt: Date.now()
-  };
-
-  state.chats.unshift(chat);
-  state.currentChatId = chat.id;
-  state.mode = "general";
-
-  saveChats();
-  renderChatHistory();
-  renderMessages();
-  updateModeUI();
-
-  return chat;
-}
-
-function ensureChat() {
-  return getCurrentChat() || createChat();
-}
-
-function openChat(id) {
-  const chat = state.chats.find(c => c.id === id);
-  if (!chat) return;
-
-  state.currentChatId = chat.id;
-  state.mode = chat.mode || "general";
-
-  renderMessages();
-  renderChatHistory();
-  updateModeUI();
-  closeSidebar();
-}
-
-function deleteChat(id) {
-  state.chats = state.chats.filter(c => c.id !== id);
-
-  if (state.currentChatId === id) {
-    state.currentChatId = null;
-  }
-
-  saveChats();
-  renderChatHistory();
-  renderMessages();
-}
-
-function makeTitle(text) {
-  const title = text.replace(/\s+/g, " ").trim();
-  return title.length > 35 ? title.substring(0, 35) + "…" : title;
-}
-
-/* ==========================================
-   HTML SAFE FORMATTING
-   ========================================== */
-
-function escapeHTML(text) {
-  return String(text).replace(/[&<>"']/g, character => {
-    const map = {
-      "&": "&amp;",
-      "<": "&lt;",
-      ">": "&gt;",
-      '"': "&quot;",
-      "'": "&#039;"
-    };
-
-    return map[character];
-  });
-}
-
-function formatMessage(text) {
-  let result = escapeHTML(text);
-
-  result = result.replace(
-    /```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/g,
-    (match, language, code) => {
-      return `<pre><code class="language-${language}">${code}</code></pre>`;
-    }
-  );
-
-  result = result.replace(/`([^`]+)`/g, "<code>$1</code>");
-  result = result.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
-  result = result.replace(/\*(.*?)\*/g, "<em>$1</em>");
-  result = result.replace(/\n/g, "<br>");
-
-  return result;
-}
-
-/* ==========================================
-   MESSAGE UI
-   ========================================== */
-
-function addMessage(role, content) {
-  const wrapper = document.createElement("div");
-  wrapper.className = `message ${role}-message`;
-
-  const bubble = document.createElement("div");
-  bubble.className = "message-content";
-  bubble.innerHTML = formatMessage(content);
-
-  wrapper.appendChild(bubble);
-  messages.appendChild(wrapper);
-
-  scrollToBottom();
-}
-
-function renderMessages() {
-  messages.innerHTML = "";
-
-  const chat = getCurrentChat();
-
-  const hasMessages = chat && chat.messages.length > 0;
-
-  if (welcome) {
-    welcome.style.display = hasMessages ? "none" : "";
-  }
-
-  if (!chat) {
-    messages.innerHTML = "";
-    return;
-  }
-
-  chat.messages.forEach(message => {
-    addMessage(message.role, message.content);
-  }
-  );
-}
-
-function scrollToBottom() {
-  const chatArea = document.getElementById("chatArea");
-
-  if (chatArea) {
-    chatArea.scrollTop = chatArea.scrollHeight;
-  }
-
-  messages.scrollTop = messages.scrollHeight;
-}
-
-function showTyping() {
-  const typing = document.createElement("div");
-  typing.className = "message assistant-message typing-indicator";
-  typing.innerHTML = `
-    <div class="message-content">
-      <span></span><span></span><span></span>
+  <aside class="sidebar" id="sidebar">
+    <div class="brand">
+      <div class="brand-logo">V</div>
+      <div class="brand-name">
+        VEYROX
+        <span>AI ASSISTANT</span>
+      </div>
     </div>
-  `;
-
-  messages.appendChild(typing);
-  scrollToBottom();
-
-  return typing;
-}
-
-function showError(text) {
-  const error = document.createElement("div");
-  error.className = "message error-message";
-
-  const bubble = document.createElement("div");
-  bubble.className = "message-content";
-  bubble.textContent = text;
-
-  error.appendChild(bubble);
-  messages.appendChild(error);
-
-  scrollToBottom();
-}
-
-/* ==========================================
-   CHAT HISTORY
-   ========================================== */
-
-function renderChatHistory() {
-  chatHistory.innerHTML = "";
-
-  state.chats.forEach(chat => {
-    const item = document.createElement("div");
-    item.className = "history-item";
-
-    if (chat.id === state.currentChatId) {
-      item.classList.add("active");
-    }
-
-    const title = document.createElement("button");
-    title.className = "history-title";
-    title.textContent = chat.title;
-    title.addEventListener("click", () => openChat(chat.id));
-
-    const deleteBtn = document.createElement("button");
-    deleteBtn.className = "history-delete";
-    deleteBtn.textContent = "×";
-    deleteBtn.title = "Chat löschen";
-
-    deleteBtn.addEventListener("click", event => {
-      event.stopPropagation();
-      deleteChat(chat.id);
-    });
-
-    item.appendChild(title);
-    item.appendChild(deleteBtn);
-    chatHistory.appendChild(item);
-  });
-}
-
-/* ==========================================
-   MODE SYSTEM
-   ========================================== */
-
-function setMode(mode) {
-  if (!MODES[mode]) return;
-
-  state.mode = mode;
-
-  const chat = getCurrentChat();
-  if (chat) {
-    chat.mode = mode;
-    saveChats();
-  }
-
-  updateModeUI();
-}
-
-function updateModeUI() {
-  document.querySelectorAll(".mode-btn").forEach(button => {
-    const active = button.dataset.mode === state.mode;
-
-    button.classList.toggle("active", active);
-    button.setAttribute("aria-pressed", String(active));
-  });
-
-  if (currentMode) {
-    currentMode.textContent = MODES[state.mode].label;
-  }
-}
 
-/* ==========================================
-   BACKEND CONNECTION
-   ========================================== */
-
-async function requestAI(message, chat) {
-  const history = chat.messages
-    .slice(0, -1)
-    .slice(-20)
-    .map(item => ({
-      role: item.role === "assistant" ? "model" : "user",
-      content: item.content
-    }));
-
-  const body = {
-    message: message,
-    mode: state.mode,
-    systemInstruction: MODES[state.mode].instruction,
-    history: history
-  };
-
-  const response = await fetch(API_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify(body)
-  });
-
-  const responseText = await response.text();
-
-  let data;
-
-  try {
-    data = JSON.parse(responseText);
-  } catch {
-    throw new Error(
-      `Serverantwort ungültig (HTTP ${response.status}).`
-    );
-  }
-
-  if (!response.ok) {
-    throw new Error(
-      data.error ||
-      data.message ||
-      `Serverfehler HTTP ${response.status}`
-    );
-  }
-
-  if (!data.reply || typeof data.reply !== "string") {
-    throw new Error("Keine KI-Antwort empfangen.");
-  }
-
-  return data.reply;
-}
-
-/* ==========================================
-   SEND
-   ========================================== */
-
-async function sendMessage() {
-  if (state.busy) return;
-
-  const text = messageInput.value.trim();
-  if (!text) return;
-
-  const chat = ensureChat();
-
-  if (chat.messages.length === 0) {
-    chat.title = makeTitle(text);
-  }
-
-  chat.mode = state.mode;
-
-  chat.messages.push({
-    role: "user",
-    content: text,
-    timestamp: Date.now()
-  });
-
-  chat.updatedAt = Date.now();
-
-  saveChats();
-  renderChatHistory();
-
-  messageInput.value = "";
-  messageInput.style.height = "auto";
-
-  if (welcome) welcome.style.display = "none";
-
-  addMessage("user", text);
-
-  state.busy = true;
-  sendBtn.disabled = true;
-  messageInput.disabled = true;
-
-  const typing = showTyping();
-
-  try {
-    const reply = await requestAI(text, chat);
-
-    typing.remove();
-
-    chat.messages.push({
-      role: "assistant",
-      content: reply,
-      timestamp: Date.now()
-    });
-
-    chat.updatedAt = Date.now();
-
-    saveChats();
-    addMessage("assistant", reply);
-  } catch (error) {
-    typing.remove();
-
-    console.error("VEYROX API ERROR:", error);
-
-    showError(
-      "Anfrage fehlgeschlagen: " +
-      (error.message || "Unbekannter Fehler")
-    );
-  } finally {
-    state.busy = false;
-    sendBtn.disabled = false;
-    messageInput.disabled = false;
-    updateSendButton();
-    messageInput.focus();
-  }
-}
-
-/* ==========================================
-   INPUT
-   ========================================== */
-
-function updateSendButton() {
-  sendBtn.disabled =
-    state.busy || !messageInput.value.trim();
-}
-
-sendBtn.addEventListener("click", sendMessage);
-
-messageInput.addEventListener("input", () => {
-  updateSendButton();
-
-  messageInput.style.height = "auto";
-  messageInput.style.height =
-    Math.min(messageInput.scrollHeight, 180) + "px";
-});
-
-messageInput.addEventListener("keydown", event => {
-  if (event.key === "Enter" && !event.shiftKey) {
-    event.preventDefault();
-    sendMessage();
-  }
-});
-
-/* ==========================================
-   NEW CHAT
-   ========================================== */
-
-newChatBtn.addEventListener("click", () => {
-  state.currentChatId = null;
-  createChat();
-});
-
-/* ==========================================
-   MODE BUTTONS
-   ========================================== */
-
-document.querySelectorAll(".mode-btn").forEach(button => {
-  button.addEventListener("click", () => {
-    setMode(button.dataset.mode);
-  });
-});
-
-/* ==========================================
-   SUGGESTIONS
-   ========================================== */
-
-document.querySelectorAll(".suggestion-card").forEach(button => {
-  button.addEventListener("click", () => {
-    const prompt = button.dataset.prompt;
-
-    if (!prompt) return;
-
-    messageInput.value = prompt;
-    updateSendButton();
-    messageInput.focus();
-  });
-});
-
-/* ==========================================
-   THEME
-   ========================================== */
-
-function applyTheme() {
-  const light = state.theme === "light";
-
-  document.body.classList.toggle("light-mode", light);
-
-  if (themeIcon) {
-    themeIcon.textContent = light ? "☀" : "☾";
-  }
-
-  if (themeText) {
-    themeText.textContent = light
-      ? "Dark Mode"
-      : "Design wechseln";
-  }
-}
-
-if (themeBtn) {
-  themeBtn.addEventListener("click", () => {
-    state.theme = state.theme === "dark" ? "light" : "dark";
-    applyTheme();
-    saveSettings();
-  });
-}
-
-/* ==========================================
-   MOBILE SIDEBAR
-   ========================================== */
-
-function openSidebar() {
-  sidebar.classList.add("open");
-  sidebarOverlay.classList.add("active");
-}
-
-function closeSidebar() {
-  sidebar.classList.remove("open");
-  sidebarOverlay.classList.remove("active");
-}
-
-if (mobileMenuBtn) {
-  mobileMenuBtn.addEventListener("click", openSidebar);
-}
-
-if (sidebarOverlay) {
-  sidebarOverlay.addEventListener("click", closeSidebar);
-}
-
-/* ==========================================
-   INITIALIZATION
-   ========================================== */
-
-loadData();
-renderChatHistory();
-renderMessages();
-updateModeUI();
-updateSendButton();
-
-console.log("VEYROX AI initialized.");
-console.log("Backend URL:", API_URL);
+    <button class="new-chat-btn" id="newChatBtn">
+      <span>＋</span> Neuer Chat
+    </button>
+
+    <div class="sidebar-label">KI-MODI</div>
+
+    <nav class="mode-list">
+      <button class="mode-btn active" data-mode="general">✦ Allgemein</button>
+      <button class="mode-btn" data-mode="writing">✎ Schreiben</button>
+      <button class="mode-btn" data-mode="coding">⌘ Coding</button>
+      <button class="mode-btn" data-mode="summary">▤ Zusammenfassen</button>
+    </nav>
+
+    <div class="sidebar-label history-label">CHATVERLAUF</div>
+    <div class="chat-history" id="chatHistory"></div>
+
+    <div class="sidebar-bottom">
+      <a href="https://discord.gg/WTctmpDXVc"
+         target="_blank"
+         rel="noopener noreferrer"
+         class="discord-link">
+        ◉ Discord Community ↗
+      </a>
+
+      <button class="theme-btn" id="themeBtn">
+        <span id="themeIcon">☾</span>
+        <span id="themeText">Design wechseln</span>
+      </button>
+
+      <div class="sidebar-footer">
+        <div class="footer-logo">V</div>
+        <div>
+          <strong>VEYROX AI</strong>
+          <small>YOUR AI. YOUR SPACE.</small>
+        </div>
+        <span class="version">1.0</span>
+      </div>
+    </div>
+  </aside>
+
+  <main class="main">
+
+    <header class="topbar">
+      <button class="mobile-menu-btn" id="mobileMenuBtn">☰</button>
+      <div class="topbar-title"><span class="status-dot"></span> VEYROX</div>
+      <div class="topbar-right"><span class="version-badge">BETA</span></div>
+    </header>
+
+    <section class="chat-area" id="chatArea">
+
+      <div class="welcome" id="welcome">
+        <div class="welcome-logo">
+          <div class="logo-glow"></div>
+          <span>V</span>
+        </div>
+
+        <div class="welcome-badge">
+          <span class="status-dot"></span>
+          DEIN KI-ASSISTENT
+        </div>
+
+        <h1>Willkommen bei <span>VEYROX.</span></h1>
+
+        <p class="welcome-description">
+          Deine Ideen. Deine Fragen. Deine Möglichkeiten.<br>
+          Was möchtest du heute machen?
+        </p>
+
+        <div class="suggestions" id="suggestions">
+          <button class="suggestion-card" data-prompt="Hi">
+            <span class="suggestion-icon blue">✦</span>
+            <strong>KI testen</strong>
+            <small>Schreibe Hi an VEYROX</small>
+            <span class="suggestion-arrow">↗</span>
+          </button>
+
+          <button class="suggestion-card" data-prompt="Erkläre mir ein schwieriges Thema einfach und verständlich.">
+            <span class="suggestion-icon blue">✦</span>
+            <strong>Etwas lernen</strong>
+            <small>Erkläre mir ein Thema</small>
+            <span class="suggestion-arrow">↗</span>
+          </button>
+
+          <button class="suggestion-card" data-prompt="Hilf mir, einen kreativen Text zu schreiben.">
+            <span class="suggestion-icon purple">✎</span>
+            <strong>Etwas schreiben</strong>
+            <small>Texte und Ideen entwickeln</small>
+            <span class="suggestion-arrow">↗</span>
+          </button>
+
+          <button class="suggestion-card" data-prompt="Schreibe Code und erkläre mir, wie er funktioniert.">
+            <span class="suggestion-icon cyan">⌘</span>
+            <strong>Programmieren</strong>
+            <small>Code erstellen und verstehen</small>
+            <span class="suggestion-arrow">↗</span>
+          </button>
+
+          <button class="suggestion-card" data-prompt="Fasse ein Thema übersichtlich zusammen.">
+            <span class="suggestion-icon orange">▤</span>
+            <strong>Zusammenfassen</strong>
+            <small>Das Wichtigste auf einen Blick</small>
+            <span class="suggestion-arrow">↗</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="messages" id="messages"></div>
+    </section>
+
+    <footer class="input-area">
+      <div class="input-container">
+        <textarea
+          id="messageInput"
+          placeholder="Schreibe deine Nachricht an VEYROX..."
+          rows="1"
+          maxlength="12000"></textarea>
+
+        <div class="input-bottom">
+          <div class="input-left">
+            <span class="input-mode" id="currentMode">✦ Allgemein</span>
+          </div>
+
+          <button
+            class="send-btn"
+            id="sendBtn"
+            aria-label="Nachricht senden"
+            disabled>↑</button>
+        </div>
+      </div>
+
+      <div class="disclaimer">
+        VEYROX kann Fehler machen. Überprüfe wichtige Informationen.
+      </div>
+    </footer>
+
+  </main>
+</div>
+
+<div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+<script src="script.js"></script>
+</body>
+</html>

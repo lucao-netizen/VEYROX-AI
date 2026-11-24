@@ -1,602 +1,523 @@
 
-/* =========================================
-   VEYROX AI — VERSION 1.0
-   Chat System
-========================================= */
-
 "use strict";
 
-/* =========================================
-   CONFIGURATION
-========================================= */
+/* ==========================================
+   VEYROX AI — FRONTEND
+   Backend: Render
+   ========================================== */
 
-// Wird später durch die echte Backend-URL ersetzt.
-const API_URL = "https://veyrox-ai.onrender.com";
+const API_URL = "https://veyrox-ai.onrender.com/api/chat";
+const STORAGE_KEY = "veyrox_chats_v2";
+const SETTINGS_KEY = "veyrox_settings_v2";
 
-const STORAGE_KEY = "veyrox_chats_v1";
-const THEME_KEY = "veyrox_theme_v1";
-
-/* =========================================
-   ELEMENTS
-========================================= */
-
-const messageInput = document.getElementById("messageInput");
-const sendBtn = document.getElementById("sendBtn");
-const messagesEl = document.getElementById("messages");
-const welcomeEl = document.getElementById("welcome");
-const chatHistoryEl = document.getElementById("chatHistory");
-const newChatBtn = document.getElementById("newChatBtn");
-const themeBtn = document.getElementById("themeBtn");
-const themeIcon = document.getElementById("themeIcon");
-const themeText = document.getElementById("themeText");
-const currentModeEl = document.getElementById("currentMode");
-const modeButtons = document.querySelectorAll(".mode-btn");
-const suggestionButtons = document.querySelectorAll(".suggestion-card");
-const sidebar = document.getElementById("sidebar");
-const mobileMenuBtn = document.getElementById("mobileMenuBtn");
-const sidebarOverlay = document.getElementById("sidebarOverlay");
-
-/* =========================================
-   STATE
-========================================= */
-
-let chats = loadChats();
-let currentChatId = null;
-let currentMode = "general";
-let isLoading = false;
-
-const modes = {
+const MODES = {
   general: {
-    label: "Allgemein",
-    icon: "✦",
-    instruction:
-      "Du bist VEYROX, ein hilfreicher KI-Assistent. Antworte klar, verständlich und präzise. Verwende die Sprache des Nutzers."
+    name: "Allgemein",
+    instruction: "Du bist VEYROX, ein hilfreicher, intelligenter KI-Assistent. Antworte verständlich, präzise und in der Sprache des Nutzers."
   },
-
   writing: {
-    label: "Schreiben",
-    icon: "✎",
-    instruction:
-      "Du bist VEYROX im Schreibmodus. Hilf beim Schreiben, Überarbeiten, Formulieren und Entwickeln von Texten. Passe den Stil an die Anfrage an."
+    name: "Schreiben",
+    instruction: "Du bist VEYROX, ein professioneller Schreibassistent. Hilf beim Schreiben, Überarbeiten, Formulieren und Verbessern von Texten."
   },
-
   coding: {
-    label: "Coding",
-    icon: "⌘",
-    instruction:
-      "Du bist VEYROX im Coding-Modus. Schreibe sauberen und funktionierenden Code. Erkläre Fehler verständlich und liefere vollständige Lösungen, wenn sie verlangt werden."
+    name: "Programmieren",
+    instruction: "Du bist VEYROX, ein technischer Programmierassistent. Erkläre Code verständlich, liefere korrekte Lösungen und achte auf Fehler."
   },
-
   summary: {
-    label: "Zusammenfassen",
-    icon: "▤",
-    instruction:
-      "Du bist VEYROX im Zusammenfassungsmodus. Fasse Inhalte übersichtlich, korrekt und auf das Wesentliche konzentriert zusammen. Erfinde keine Informationen."
+    name: "Zusammenfassen",
+    instruction: "Du bist VEYROX, ein Zusammenfassungsassistent. Fasse Inhalte strukturiert, verständlich und auf das Wesentliche konzentriert zusammen."
   }
 };
 
-/* =========================================
-   STORAGE
-========================================= */
+const $ = (selector) => document.querySelector(selector);
+const $$ = (selector) => [...document.querySelectorAll(selector)];
 
-function loadChats() {
+const state = {
+  mode: "general",
+  chats: [],
+  currentChatId: null,
+  busy: false,
+  settings: {
+    theme: "dark"
+  }
+};
+
+/* ---------- DOM ELEMENTS ---------- */
+
+const input =
+  $("#messageInput") ||
+  $("#chatInput") ||
+  $("#promptInput") ||
+  $("textarea");
+
+const sendButton =
+  $("#sendButton") ||
+  $("#sendBtn") ||
+  $("#submitButton") ||
+  $('[type="submit"]');
+
+const messagesContainer =
+  $("#messagesContainer") ||
+  $("#chatMessages") ||
+  $("#messages") ||
+  $(".messages");
+
+const chatList =
+  $("#chatHistory") ||
+  $("#chatList") ||
+  $("#historyList");
+
+const newChatButton =
+  $("#newChatButton") ||
+  $("#newChatBtn") ||
+  $("#newChat");
+
+const modeButtons = $$("[data-mode]");
+
+/* ---------- STORAGE ---------- */
+
+function loadStorage() {
   try {
-    const saved = localStorage.getItem(STORAGE_KEY);
+    const chats = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+    if (Array.isArray(chats)) state.chats = chats;
+  } catch {
+    state.chats = [];
+  }
 
-    if (!saved) return [];
-
-    const parsed = JSON.parse(saved);
-
-    if (!Array.isArray(parsed)) return [];
-
-    return parsed.filter(chat =>
-      chat &&
-      typeof chat.id === "string" &&
-      Array.isArray(chat.messages)
+  try {
+    const settings = JSON.parse(
+      localStorage.getItem(SETTINGS_KEY) || "{}"
     );
 
-  } catch (error) {
-    console.error("Chatverlauf konnte nicht geladen werden:", error);
-    return [];
+    state.settings = { ...state.settings, ...settings };
+  } catch {}
+
+  if (state.settings.theme === "light") {
+    document.body.classList.add("light-mode");
   }
 }
 
 function saveChats() {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(chats));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state.chats));
   } catch (error) {
-    console.error("Chatverlauf konnte nicht gespeichert werden:", error);
+    console.error("VEYROX: Chats konnten nicht gespeichert werden", error);
   }
 }
 
-/* =========================================
-   HELPERS
-========================================= */
-
-function createId() {
-  return (
-    Date.now().toString(36) +
-    Math.random().toString(36).slice(2, 9)
-  );
+function saveSettings() {
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(state.settings));
 }
 
-function escapeHTML(text) {
-  return String(text)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
-}
-
-function formatMessage(text) {
-  let safe = escapeHTML(text);
-
-  // Codeblöcke
-  safe = safe.replace(
-    /```([\w+-]*)\n([\s\S]*?)```/g,
-    (match, language, code) => {
-      return `<pre><code>${code.trim()}</code></pre>`;
-    }
-  );
-
-  // Inline-Code
-  safe = safe.replace(
-    /`([^`]+)`/g,
-    "<code>$1</code>"
-  );
-
-  // Fett
-  safe = safe.replace(
-    /\*\*([^*]+)\*\*/g,
-    "<strong>$1</strong>"
-  );
-
-  // Kursiv
-  safe = safe.replace(
-    /\*([^*]+)\*/g,
-    "<em>$1</em>"
-  );
-
-  // Zeilenumbrüche
-  safe = safe.replace(/\n/g, "<br>");
-
-  return safe;
-}
-
-function getCurrentChat() {
-  return chats.find(chat => chat.id === currentChatId) || null;
-}
-
-function scrollToBottom() {
-  requestAnimationFrame(() => {
-    const chatArea = document.getElementById("chatArea");
-
-    if (chatArea) {
-      chatArea.scrollTop = chatArea.scrollHeight;
-    }
-  });
-}
-
-function closeMobileSidebar() {
-  sidebar?.classList.remove("open");
-  sidebarOverlay?.classList.remove("visible");
-}
-
-/* =========================================
-   CHAT MANAGEMENT
-========================================= */
+/* ---------- CHAT MANAGEMENT ---------- */
 
 function createChat() {
   const chat = {
-    id: createId(),
+    id: crypto.randomUUID(),
     title: "Neuer Chat",
-    mode: currentMode,
+    mode: state.mode,
     messages: [],
     createdAt: Date.now(),
     updatedAt: Date.now()
   };
 
-  chats.unshift(chat);
-  currentChatId = chat.id;
+  state.chats.unshift(chat);
+  state.currentChatId = chat.id;
 
   saveChats();
-  renderHistory();
+  renderChatList();
   renderMessages();
-
-  messageInput.value = "";
-  autoResizeInput();
-  messageInput.focus();
 
   return chat;
 }
 
-function selectChat(id) {
-  const chat = chats.find(item => item.id === id);
+function getCurrentChat() {
+  return state.chats.find(
+    chat => chat.id === state.currentChatId
+  );
+}
 
+function ensureChat() {
+  return getCurrentChat() || createChat();
+}
+
+function openChat(id) {
+  const chat = state.chats.find(c => c.id === id);
   if (!chat) return;
 
-  currentChatId = id;
-  currentMode = modes[chat.mode] ? chat.mode : "general";
+  state.currentChatId = id;
+  state.mode = chat.mode || "general";
 
-  updateModeUI();
-  renderHistory();
+  updateModeButtons();
   renderMessages();
-  closeMobileSidebar();
+  renderChatList();
 }
 
 function deleteChat(id) {
-  chats = chats.filter(chat => chat.id !== id);
+  state.chats = state.chats.filter(c => c.id !== id);
 
-  if (currentChatId === id) {
-    currentChatId = chats.length ? chats[0].id : null;
+  if (state.currentChatId === id) {
+    state.currentChatId = null;
   }
 
   saveChats();
-  renderHistory();
+  renderChatList();
   renderMessages();
 }
 
-function updateChatTitle(chat, firstMessage) {
-  if (chat.messages.length <= 1) {
-    const title = firstMessage.trim();
+function renameChat(id, title) {
+  const chat = state.chats.find(c => c.id === id);
+  if (!chat) return;
 
-    chat.title =
-      title.length > 38
-        ? title.slice(0, 38) + "..."
-        : title;
-  }
+  chat.title = title.trim() || "Neuer Chat";
+  saveChats();
+  renderChatList();
 }
 
-function renderHistory() {
-  chatHistoryEl.innerHTML = "";
-
-  chats.forEach(chat => {
-    const item = document.createElement("div");
-    item.className = "history-item";
-
-    if (chat.id === currentChatId) {
-      item.classList.add("active");
-    }
-
-    const title = document.createElement("span");
-    title.className = "history-title";
-    title.textContent = chat.title || "Neuer Chat";
-
-    const deleteBtn = document.createElement("button");
-    deleteBtn.className = "history-delete";
-    deleteBtn.textContent = "×";
-    deleteBtn.title = "Chat löschen";
-    deleteBtn.setAttribute("aria-label", "Chat löschen");
-
-    item.appendChild(title);
-    item.appendChild(deleteBtn);
-
-    item.addEventListener("click", event => {
-      if (event.target === deleteBtn) return;
-      selectChat(chat.id);
-    });
-
-    deleteBtn.addEventListener("click", event => {
-      event.stopPropagation();
-      deleteChat(chat.id);
-    });
-
-    chatHistoryEl.appendChild(item);
-  });
+function generateTitle(text) {
+  const clean = text.replace(/\s+/g, " ").trim();
+  return clean.length > 36 ? clean.slice(0, 36) + "…" : clean;
 }
 
-/* =========================================
-   RENDER MESSAGES
-========================================= */
+/* ---------- MESSAGE RENDERING ---------- */
 
-function renderMessages() {
-  messagesEl.innerHTML = "";
+function escapeHTML(text) {
+  return String(text).replace(/[&<>"']/g, char => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#039;"
+  }[char]));
+}
 
-  const chat = getCurrentChat();
+function formatMessage(text) {
+  let safe = escapeHTML(text);
 
-  if (!chat || chat.messages.length === 0) {
-    welcomeEl.style.display = "flex";
-    messagesEl.style.display = "none";
+  // Code blocks
+  safe = safe.replace(
+    /```([\w+-]*)\n([\s\S]*?)```/g,
+    (_, lang, code) =>
+      `<pre><code class="language-${lang}">${code}</code></pre>`
+  );
+
+  // Inline code
+  safe = safe.replace(/`([^`]+)`/g, "<code>$1</code>");
+
+  // Basic Markdown
+  safe = safe.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
+  safe = safe.replace(/\*(.*?)\*/g, "<em>$1</em>");
+  safe = safe.replace(/\n/g, "<br>");
+
+  return safe;
+}
+
+function addMessageToUI(role, content) {
+  if (!messagesContainer) {
+    console.error("VEYROX: Nachrichtencontainer nicht gefunden.");
     return;
   }
 
-  welcomeEl.style.display = "none";
-  messagesEl.style.display = "flex";
+  const wrapper = document.createElement("div");
+  wrapper.className = `message ${role}-message`;
+
+  const bubble = document.createElement("div");
+  bubble.className = "message-content";
+  bubble.innerHTML = formatMessage(content);
+
+  wrapper.appendChild(bubble);
+  messagesContainer.appendChild(wrapper);
+
+  scrollToBottom();
+}
+
+function renderMessages() {
+  if (!messagesContainer) return;
+
+  messagesContainer.innerHTML = "";
+
+  const chat = getCurrentChat();
+
+  if (!chat) {
+    showWelcome();
+    return;
+  }
 
   chat.messages.forEach(message => {
     addMessageToUI(message.role, message.content);
   });
-
-  scrollToBottom();
 }
 
-/* KORRIGIERTE NACHRICHTEN-FUNKTION */
+function showWelcome() {
+  if (!messagesContainer) return;
 
-function addMessageToUI(role, messageContent) {
-  const wrapper = document.createElement("div");
-  wrapper.className = `message ${role}`;
+  messagesContainer.innerHTML = `
+    <div class="veyrox-welcome">
+      <h2>VEYROX AI</h2>
+      <p>YOUR AI. YOUR SPACE.</p>
+      <p>Wie kann ich dir helfen?</p>
+    </div>
+  `;
+}
 
-  const avatar = document.createElement("div");
-  avatar.className = "message-avatar";
-  avatar.textContent = role === "user" ? "U" : "V";
-
-  const contentEl = document.createElement("div");
-  contentEl.className = "message-content";
-
-  if (role === "assistant") {
-    const name = document.createElement("div");
-    name.className = "message-name";
-    name.textContent = "VEYROX";
-    contentEl.appendChild(name);
+function scrollToBottom() {
+  if (messagesContainer) {
+    messagesContainer.scrollTop = messagesContainer.scrollHeight;
   }
-
-  const textEl = document.createElement("div");
-  textEl.className = "message-text";
-  textEl.innerHTML = formatMessage(messageContent);
-
-  contentEl.appendChild(textEl);
-  wrapper.appendChild(avatar);
-  wrapper.appendChild(contentEl);
-
-  messagesEl.appendChild(wrapper);
-
-  scrollToBottom();
 }
 
-/* =========================================
-   TYPING INDICATOR
-========================================= */
+/* ---------- CHAT HISTORY ---------- */
 
-function showTyping() {
-  const wrapper = document.createElement("div");
-  wrapper.className = "message assistant";
-  wrapper.id = "typingIndicator";
+function renderChatList() {
+  if (!chatList) return;
 
-  const avatar = document.createElement("div");
-  avatar.className = "message-avatar";
-  avatar.textContent = "V";
+  chatList.innerHTML = "";
 
-  const content = document.createElement("div");
-  content.className = "message-content";
+  state.chats.forEach(chat => {
+    const item = document.createElement("div");
+    item.className = "chat-history-item";
 
-  const name = document.createElement("div");
-  name.className = "message-name";
-  name.textContent = "VEYROX";
+    if (chat.id === state.currentChatId) {
+      item.classList.add("active");
+    }
 
-  const dots = document.createElement("div");
-  dots.className = "typing-indicator";
+    const title = document.createElement("button");
+    title.className = "chat-history-title";
+    title.textContent = chat.title || "Neuer Chat";
+    title.onclick = () => openChat(chat.id);
 
-  dots.innerHTML = "<span></span><span></span><span></span>";
+    const remove = document.createElement("button");
+    remove.className = "chat-history-delete";
+    remove.textContent = "×";
+    remove.title = "Chat löschen";
+    remove.onclick = event => {
+      event.stopPropagation();
+      deleteChat(chat.id);
+    };
 
-  content.appendChild(name);
-  content.appendChild(dots);
-
-  wrapper.appendChild(avatar);
-  wrapper.appendChild(content);
-
-  messagesEl.appendChild(wrapper);
-
-  scrollToBottom();
+    item.append(title, remove);
+    chatList.appendChild(item);
+  });
 }
 
-function removeTyping() {
-  document.getElementById("typingIndicator")?.remove();
-}
-
-/* =========================================
-   MODE SYSTEM
-========================================= */
+/* ---------- MODES ---------- */
 
 function setMode(mode) {
-  if (!modes[mode]) return;
+  if (!MODES[mode]) return;
 
-  currentMode = mode;
+  state.mode = mode;
 
   const chat = getCurrentChat();
+  if (chat) chat.mode = mode;
 
-  if (chat) {
-    chat.mode = mode;
-    chat.updatedAt = Date.now();
-    saveChats();
-  }
-
-  updateModeUI();
+  updateModeButtons();
+  saveChats();
 }
 
-function updateModeUI() {
+function updateModeButtons() {
   modeButtons.forEach(button => {
-    const active = button.dataset.mode === currentMode;
+    const selected = button.dataset.mode === state.mode;
 
-    button.classList.toggle("active", active);
+    button.classList.toggle("active", selected);
+    button.classList.toggle("selected", selected);
+    button.setAttribute("aria-pressed", String(selected));
   });
+}
 
-  const mode = modes[currentMode];
+/* ---------- STATUS ---------- */
 
-  if (mode && currentModeEl) {
-    currentModeEl.textContent = `${mode.icon} ${mode.label}`;
+function setBusy(busy) {
+  state.busy = busy;
+
+  if (sendButton) {
+    sendButton.disabled = busy;
+  }
+
+  if (input) {
+    input.disabled = busy;
   }
 }
 
-/* =========================================
-   INPUT SYSTEM
-========================================= */
+function showTyping() {
+  if (!messagesContainer) return null;
 
-function autoResizeInput() {
-  messageInput.style.height = "auto";
+  const typing = document.createElement("div");
+  typing.className = "message assistant-message typing-indicator";
+  typing.innerHTML = "<span></span><span></span><span></span>";
 
-  messageInput.style.height =
-    Math.min(messageInput.scrollHeight, 180) + "px";
+  messagesContainer.appendChild(typing);
+  scrollToBottom();
 
-  sendBtn.disabled =
-    !messageInput.value.trim() || isLoading;
+  return typing;
 }
 
-messageInput.addEventListener("input", autoResizeInput);
-
-messageInput.addEventListener("keydown", event => {
-  if (event.key === "Enter" && !event.shiftKey) {
-    event.preventDefault();
-    sendMessage();
-  }
-});
-
-/* =========================================
-   SEND MESSAGE
-========================================= */
-
-async function sendMessage(customText = null) {
-  if (isLoading) return;
-
-  const message = (customText ?? messageInput.value).trim();
-
-  if (!message) return;
-
-  let chat = getCurrentChat();
-
-  if (!chat) {
-    chat = createChat();
+function showError(message) {
+  if (!messagesContainer) {
+    alert(message);
+    return;
   }
 
-  const userMessage = {
-    role: "user",
-    content: message
+  const error = document.createElement("div");
+  error.className = "veyrox-error";
+  error.textContent = message;
+
+  messagesContainer.appendChild(error);
+  scrollToBottom();
+}
+
+/* ---------- BACKEND ---------- */
+
+async function getAIResponse(message, chat) {
+  const history = chat.messages
+    .slice(0, -1)
+    .slice(-20)
+    .map(item => ({
+      role: item.role === "assistant" ? "model" : "user",
+      content: item.content
+    }));
+
+  const payload = {
+    message,
+    mode: state.mode,
+    systemInstruction: MODES[state.mode].instruction,
+    history
   };
 
-  chat.messages.push(userMessage);
-
-  updateChatTitle(chat, message);
-  chat.updatedAt = Date.now();
-
-  messageInput.value = "";
-  autoResizeInput();
-
-  saveChats();
-  renderHistory();
-  renderMessages();
-
-  isLoading = true;
-  sendBtn.disabled = true;
-
-  showTyping();
+  let response;
 
   try {
-    const response = await getAIResponse(chat);
-
-    removeTyping();
-
-    chat.messages.push({
-      role: "assistant",
-      content: response
+    response = await fetch(API_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(payload)
     });
-
-    chat.updatedAt = Date.now();
-
-    saveChats();
-    renderMessages();
-    renderHistory();
-
   } catch (error) {
-    removeTyping();
-
-    const errorMessage =
-      error.message || "Ein unbekannter Fehler ist aufgetreten.";
-
-    chat.messages.push({
-      role: "assistant",
-      content: "⚠️ " + errorMessage
-    });
-
-    saveChats();
-    renderMessages();
-
-  } finally {
-    isLoading = false;
-    autoResizeInput();
-  }
-}
-
-/* =========================================
-   AI BACKEND CONNECTION
-========================================= */
-
-async function getAIResponse(chat) {
-  if (!API_URL) {
     throw new Error(
-      "Das VEYROX-Backend ist noch nicht verbunden. Die Backend-Adresse fehlt."
+      "Backend nicht erreichbar. Prüfe deine Internetverbindung oder Render."
     );
   }
 
-  const mode = modes[chat.mode || currentMode];
+  const raw = await response.text();
 
-  const history = chat.messages.slice(-20).map(message => ({
-    role: message.role,
-    content: message.content
-  }));
-
-  const lastMessage =
-    chat.messages[chat.messages.length - 1];
-
-  const response = await fetch(API_URL, {
-    method: "POST",
-
-    headers: {
-      "Content-Type": "application/json"
-    },
-
-    body: JSON.stringify({
-      message: lastMessage.content,
-      mode: chat.mode || currentMode,
-      systemInstruction: mode.instruction,
-      history: history
-    })
-  });
-
-  if (!response.ok) {
-    let errorMessage = "Die Anfrage ist fehlgeschlagen.";
-
-    try {
-      const errorData = await response.json();
-
-      if (errorData.error) {
-        errorMessage = errorData.error;
-      }
-    } catch {
-      // Server hat keine JSON-Antwort geliefert
-    }
-
-    throw new Error(errorMessage);
+  let data;
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    throw new Error(
+      `Backend lieferte keine gültige JSON-Antwort (HTTP ${response.status}).`
+    );
   }
 
-  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(
+      data.error ||
+      data.message ||
+      `Serverfehler HTTP ${response.status}`
+    );
+  }
 
   if (!data.reply || typeof data.reply !== "string") {
-    throw new Error("Der KI-Dienst hat keine gültige Antwort geliefert.");
+    throw new Error("Die KI hat keine gültige Antwort zurückgegeben.");
   }
 
   return data.reply;
 }
 
-/* =========================================
-   NEW CHAT BUTTON
-========================================= */
+/* ---------- SEND MESSAGE ---------- */
 
-newChatBtn.addEventListener("click", () => {
-  createChat();
-  closeMobileSidebar();
-});
+async function sendMessage() {
+  if (state.busy || !input) return;
 
-/* =========================================
-   SEND BUTTON
-========================================= */
+  const message = input.value.trim();
+  if (!message) return;
 
-sendBtn.addEventListener("click", () => {
-  sendMessage();
-});
+  const chat = ensureChat();
 
-/* =========================================
-   MODE BUTTONS
-========================================= */
+  if (chat.messages.length === 0) {
+    chat.title = generateTitle(message);
+  }
+
+  chat.mode = state.mode;
+
+  chat.messages.push({
+    role: "user",
+    content: message,
+    timestamp: Date.now()
+  });
+
+  chat.updatedAt = Date.now();
+
+  saveChats();
+  renderChatList();
+
+  input.value = "";
+  input.style.height = "";
+
+  addMessageToUI("user", message);
+
+  setBusy(true);
+  const typing = showTyping();
+
+  try {
+    const reply = await getAIResponse(message, chat);
+
+    if (typing) typing.remove();
+
+    chat.messages.push({
+      role: "assistant",
+      content: reply,
+      timestamp: Date.now()
+    });
+
+    chat.updatedAt = Date.now();
+
+    saveChats();
+    addMessageToUI("assistant", reply);
+  } catch (error) {
+    if (typing) typing.remove();
+
+    console.error("VEYROX Chat Fehler:", error);
+
+    showError("Fehler: " + error.message);
+  } finally {
+    setBusy(false);
+    if (input) input.focus();
+  }
+}
+
+/* ---------- EVENTS ---------- */
+
+if (sendButton) {
+  sendButton.addEventListener("click", event => {
+    event.preventDefault();
+    sendMessage();
+  });
+}
+
+if (input) {
+  input.addEventListener("keydown", event => {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      sendMessage();
+    }
+  });
+
+  input.addEventListener("input", () => {
+    input.style.height = "auto";
+    input.style.height = Math.min(input.scrollHeight, 180) + "px";
+  });
+}
+
+if (newChatButton) {
+  newChatButton.addEventListener("click", () => {
+    state.currentChatId = null;
+    state.mode = "general";
+    createChat();
+    updateModeButtons();
+  });
+}
 
 modeButtons.forEach(button => {
   button.addEventListener("click", () => {
@@ -604,81 +525,12 @@ modeButtons.forEach(button => {
   });
 });
 
-/* =========================================
-   SUGGESTIONS
-========================================= */
+/* ---------- INITIALIZATION ---------- */
 
-suggestionButtons.forEach(button => {
-  button.addEventListener("click", () => {
-    const prompt = button.dataset.prompt;
+loadStorage();
+renderChatList();
+renderMessages();
+updateModeButtons();
 
-    if (prompt) {
-      sendMessage(prompt);
-    }
-  });
-});
-
-/* =========================================
-   THEME SYSTEM
-========================================= */
-
-function applyTheme(theme) {
-  const isLight = theme === "light";
-
-  document.body.classList.toggle("light-theme", isLight);
-
-  themeIcon.textContent = isLight ? "☀" : "☾";
-
-  themeText.textContent =
-    isLight ? "Dark Mode" : "Design wechseln";
-}
-
-themeBtn.addEventListener("click", () => {
-  const isLight =
-    document.body.classList.contains("light-theme");
-
-  const newTheme = isLight ? "dark" : "light";
-
-  localStorage.setItem(THEME_KEY, newTheme);
-
-  applyTheme(newTheme);
-});
-
-/* =========================================
-   MOBILE SIDEBAR
-========================================= */
-
-mobileMenuBtn.addEventListener("click", () => {
-  sidebar.classList.toggle("open");
-  sidebarOverlay.classList.toggle("visible");
-});
-
-sidebarOverlay.addEventListener("click", closeMobileSidebar);
-
-/* =========================================
-   INITIALIZATION
-========================================= */
-
-function init() {
-  const savedTheme =
-    localStorage.getItem(THEME_KEY) || "dark";
-
-  applyTheme(savedTheme);
-
-  updateModeUI();
-  renderHistory();
-
-  if (chats.length > 0) {
-    currentChatId = chats[0].id;
-    currentMode = modes[chats[0].mode]
-      ? chats[0].mode
-      : "general";
-
-    updateModeUI();
-  }
-
-  renderMessages();
-  autoResizeInput();
-}
-
-init();
+console.log("VEYROX AI frontend loaded.");
+console.log("Backend:", API_URL);

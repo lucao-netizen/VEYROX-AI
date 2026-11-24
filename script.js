@@ -11,7 +11,7 @@
 ========================================= */
 
 // Wird später durch die echte Backend-URL ersetzt.
-const API_URL = "";
+const API_URL = "https://veyrox-ai.onrender.com";
 
 const STORAGE_KEY = "veyrox_chats_v1";
 const THEME_KEY = "veyrox_theme_v1";
